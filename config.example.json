@@ -1,0 +1,31 @@
+{
+  "_comment": "Copy this to ~/.config/ai-usage-bar/config.json and fill in. Never commit your real config or token files.",
+
+  "claude": {
+    "_note": "Preferred: put the OAuth token in ~/.config/ai-usage-bar/claude-oauth.token (chmod 600). Get one with `claude setup-token`. The plugin reads 5h/weekly % from anthropic-ratelimit-unified-* response headers on a tiny messages call (needs only user:inference scope). 'oauth_token' below is an optional fallback.",
+    "oauth_token": "",
+    "label": "Max 20x"
+  },
+
+  "featherless": {
+    "dashboard_url": "https://featherless.ai/account",
+    "proxy_url": "http://127.0.0.1:18086/v1/models"
+  },
+
+  "ollama_cloud": {
+    "_note": "Live Session/Weekly usage is scraped from the logged-in ollama.com/settings page using your Chrome session cookie (no public usage API exists). Stay logged into ollama.com in Chrome.",
+    "dashboard_url": "https://ollama.com/settings",
+    "local_url": "http://127.0.0.1:11434/api/tags"
+  },
+
+  "display": {
+    "menubar_metric": "claude_5h",
+    "warn_percent": 50,
+    "crit_percent": 80,
+    "_colors": "Bright, colorblind-friendly. <warn_percent = ok_color, >=warn = warn_color, >=crit = crit_color.",
+    "ok_color": "#00E000",
+    "warn_color": "#FF8C00",
+    "crit_color": "#FF2A2A",
+    "none_color": "#AAAAAA"
+  }
+}

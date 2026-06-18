@@ -1,0 +1,12 @@
+# Secrets — never commit
+*.token
+*.key
+claude-oauth.token
+cloud.key
+featherless.key
+config.json          # the REAL config (may contain a token); commit config.example.json instead
+
+# macOS / editor cruft
+.DS_Store
+*.swp
+__pycache__/
