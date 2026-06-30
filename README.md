@@ -30,16 +30,37 @@ If an auth-based service (Claude or Ollama) loses its connection, the bar collap
 
 ## Install
 
-1. Install SwiftBar and point its **Plugin Folder** at a directory, e.g. `~/Library/Application Support/ai-usage-bar/plugins`.
-2. Copy `aiusage.60s.py` into that folder and `chmod +x` it.
-3. `mkdir -p ~/.config/ai-usage-bar && cp config.example.json ~/.config/ai-usage-bar/config.json`
-4. **Claude token:** run `claude setup-token`, then save the `sk-ant-oat01-…` value to `~/.config/ai-usage-bar/claude-oauth.token` (`chmod 600`).
-5. **Ollama:** just make sure Chrome is logged into ollama.com. First run will prompt once to allow the "Chrome Safe Storage" keychain item — click Always Allow.
-6. Refresh: `open "swiftbar://refreshallplugins"`.
+One-shot installer (private repo, so clone with SSH or download a zip):
 
-### Launch at login
+```sh
+git clone git@github.com:karlwireless/Token-Usage-.git
+cd Token-Usage-
+./install.sh
+```
 
-SwiftBar can launch at login from its own menu, or use a LaunchAgent that runs `open -a SwiftBar` at load.
+The installer is idempotent (safe to re-run) and:
+
+- installs SwiftBar to `/Applications` if not already present
+- drops the plugin into `~/Library/Application Support/ai-usage-bar/plugins/`
+- seeds `~/.config/ai-usage-bar/config.json` from the example (existing config preserved)
+- installs a LaunchAgent so SwiftBar starts at login
+- symlinks the Claude desktop app's bundled `claude` CLI to `~/.local/bin/claude` (if Claude Desktop is installed)
+- launches SwiftBar
+
+After it finishes, it prints two one-time auth steps:
+
+1. **Claude token** — `~/.local/bin/claude setup-token`, then save the printed `sk-ant-oat01-…` to `~/.config/ai-usage-bar/claude-oauth.token` (`chmod 600`).
+2. **Ollama** — stay logged into `ollama.com` in Google Chrome; first refresh will pop a one-time "Chrome Safe Storage" keychain prompt — click **Always Allow**.
+
+Codex (X) and Featherless work automatically if those tools are installed.
+
+### Uninstall
+
+```sh
+./uninstall.sh          # removes plugin, LaunchAgent, claude symlink (keeps config/tokens)
+./uninstall.sh --purge  # also removes ~/.config/ai-usage-bar
+```
+SwiftBar itself is not removed; delete `/Applications/SwiftBar.app` manually if you want it gone.
 
 ## Security notes
 
