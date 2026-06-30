@@ -175,9 +175,14 @@ def get_codex():
     out["plan"] = best.get("plan_type")
     pr = best.get("primary") or {}
     sc = best.get("secondary") or {}
-    out["p5h"] = as_percent(pr.get("used_percent"))
+    # Codex's used_percent is already a 0-100 percentage — do NOT pass through
+    # as_percent() (which would treat values <=1 as a 0..1 fraction and 100x them).
+    def _num(v):
+        try: return float(v)
+        except (TypeError, ValueError): return None
+    out["p5h"] = _num(pr.get("used_percent"))
     out["p5h_reset"] = to_epoch(pr.get("resets_at"))
-    out["pwk"] = as_percent(sc.get("used_percent"))
+    out["pwk"] = _num(sc.get("used_percent"))
     out["pwk_reset"] = to_epoch(sc.get("resets_at"))
     out["age_min"] = int((time.time() - best_mtime) / 60)
     return out
