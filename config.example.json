@@ -19,7 +19,7 @@
   },
 
   "z_ai": {
-    "_note": "z.ai Coding Plan does not expose a live used-percent API. The plugin verifies the Anthropic-compatible endpoint and shows documented plan limits. Store the key at ~/.config/ai-usage-bar/zai.key or set ZAI_API_KEY.",
+    "_note": "The plugin reads z.ai Coding Plan quota from the official monitor endpoints, verifies the Anthropic-compatible endpoint, and falls back to the configured plan if live monitor level is unavailable. Store the key at ~/.config/ai-usage-bar/zai.key or set ZAI_API_KEY.",
     "dashboard_url": "https://z.ai/manage-apikey/rate-limits",
     "base_url": "https://api.z.ai/api/anthropic",
     "model": "GLM-5.2",

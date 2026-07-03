@@ -5,10 +5,10 @@ A macOS menu-bar tracker (SwiftBar plugin) showing live usage-vs-limit for **Cla
 Menu bar shows a compact summary:
 
 ```
-C 6%   X 100%   O 0.2%   Z Max
+C 6%   X 100%   O 0.2%   Z 1%
 ```
 
-`C` = Claude (5-hour window) · `X` = Codex (5-hour window) · `O` = Ollama (session window) · `Z` = configured z.ai Coding Plan tier. Click for a dropdown with each service's short + weekly windows, reset countdowns, and dashboard links.
+`C` = Claude (5-hour window) · `X` = Codex (5-hour window) · `O` = Ollama (session window) · `Z` = z.ai Coding Plan 5-hour token window. Click for a dropdown with each service's short + weekly windows, reset countdowns, and dashboard links.
 
 If an auth-based service (Claude or Ollama) loses its connection, the bar collapses to **⚠️ Sign in** and the dropdown shows a one-tap reconnect link.
 
@@ -20,7 +20,7 @@ If an auth-based service (Claude or Ollama) loses its connection, the bar collap
 | **Codex** | Newest populated `rate_limits` event in `~/.codex/sessions/**/*.jsonl` | No auth. Goes blank when Codex is routed to a local provider (Featherless/Ollama) — this is normal and does **not** trigger the sign-in state. |
 | **Ollama Cloud** | Scrapes the logged-in `ollama.com/settings` HTML using your Chrome session cookie | No public usage API exists. Decrypts the `ollama.com` cookie from Chrome's cookie store (v10 / AES-128-CBC) via the "Chrome Safe Storage" keychain key. Stay logged into ollama.com in Chrome. |
 | **Featherless** | Local proxy reachability + key presence | Flat subscription — no token quota to meter. Status + dashboard link only. |
-| **z.ai** | Tiny Anthropic-compatible `GLM-5.2` probe against `https://api.z.ai/api/anthropic` | z.ai exposes documented Coding Plan limits, but no live used-percent API. The title shows the configured Lite/Pro/Max plan tier; the dropdown shows API/key health, probe token usage, and reference limits. |
+| **z.ai** | Official monitor endpoints under `https://api.z.ai/api/monitor/usage/...`, plus a tiny Anthropic-compatible `GLM-5.2` health probe | Shows live Coding Plan 5-hour token %, weekly token %, monthly MCP %, 24-hour model/tool usage, reset countdowns, and the live plan level returned by z.ai. |
 
 ## Requirements
 
@@ -68,11 +68,11 @@ SwiftBar itself is not removed; delete `/Applications/SwiftBar.app` manually if 
 - **No secrets are stored in this repo.** Tokens/keys live in local files (`*.token`, `*.key`) that are git-ignored.
 - The Ollama tile reads and decrypts a Chrome cookie locally on your machine; nothing leaves your machine except the authenticated request to ollama.com itself.
 - The Claude tile makes a 1-token API call every few minutes to read the rate-limit headers — negligible, but it does add a sliver to the usage it measures.
-- The z.ai tile makes a cached 1-token `GLM-5.2` API probe at most every 30 minutes and reads the key from `~/.config/ai-usage-bar/zai.key` or `ZAI_API_KEY`.
+- The z.ai tile reads official monitor usage endpoints plus a cached 1-token `GLM-5.2` API probe and reads the key from `~/.config/ai-usage-bar/zai.key` or `ZAI_API_KEY`.
 
 ## Caveats
 
 - **Ollama** depends on staying logged into ollama.com in Chrome; the cookie can expire (~weeks) — open ollama.com once to refresh.
 - **Ollama** is HTML scraping; if Ollama redesigns the settings page the parser may need a tweak.
-- **z.ai** does not publish live remaining-quota percentages; the plugin shows health plus documented plan limits from `z_ai.plan` (`lite`, `pro`, or `max`).
+- **z.ai** monitor data is cached briefly so the menu bar does not hammer the usage API every refresh. If the monitor endpoint is unavailable, the plugin falls back to API health plus documented plan limits from `z_ai.plan` (`lite`, `pro`, or `max`).
 - Built against SwiftBar 2.0.1; menu-bar ANSI color rendering is inconsistent across versions, so the title uses plain text.

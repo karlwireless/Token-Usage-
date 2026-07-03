@@ -14,10 +14,10 @@ Data sources (see the per-tile functions for the gory details):
   Codex         -> latest populated rate_limits block in ~/.codex/sessions/**.jsonl
   Featherless   -> local proxy reachability + key (no usage API exists; flat plan)
   Ollama Cloud  -> local server reachability + cloud models (real limits at dashboard)
-  z.ai          -> Anthropic-compatible health probe + configured Coding Plan limits
+  z.ai          -> official monitor usage endpoints + Anthropic-compatible health probe
 """
-import json, os, glob, time, re, urllib.request, urllib.error, socket
-from datetime import datetime
+import json, os, glob, time, re, urllib.request, urllib.error, urllib.parse, socket
+from datetime import datetime, timedelta
 
 HOME = os.path.expanduser("~")
 CFG_PATH = os.path.join(HOME, ".config", "ai-usage-bar", "config.json")
@@ -70,6 +70,8 @@ def to_epoch(v):
     if v is None:
         return None
     if isinstance(v, (int, float)):
+        if v > 10_000_000_000:
+            return float(v) / 1000.0
         return float(v)
     s = str(v).strip()
     try:
@@ -122,6 +124,12 @@ def pct_str(p):
     if 0 < abs(p) < 10 and abs(p - round(p)) > 0.001:
         return f"{p:.1f}%"
     return f"{p:.0f}%"
+
+def int_str(v):
+    try:
+        return f"{int(v):,}"
+    except Exception:
+        return "—"
 
 def port_open(host, port, timeout=0.6):
     try:
@@ -472,6 +480,19 @@ ZAI_LIMITS = {
     "max": {"p5h": "~1,600 prompts", "pwk": "~8,000 prompts", "mcp": "4,000 MCP calls/mo"},
 }
 
+def _json_get(url, key, timeout=15):
+    req = urllib.request.Request(
+        url,
+        headers={
+            "Authorization": key,
+            "Accept-Language": "en-US,en",
+            "Content-Type": "application/json",
+            "User-Agent": "ai-usage-bar/1.0",
+        })
+    with urllib.request.urlopen(req, timeout=timeout) as r:
+        data = json.loads(r.read().decode("utf-8", "replace"))
+    return data.get("data", data) if isinstance(data, dict) else data
+
 def _read_zai_key():
     zc = CFG.get("z_ai", {})
     paths = [
@@ -495,6 +516,70 @@ def _read_zai_key():
             return text
     return os.environ.get("ZAI_API_KEY", "").strip()
 
+def _zai_monitor_usage(key, base):
+    """Official GLM Coding Plan monitor endpoints, from zai-org/zai-coding-plugins."""
+    parsed = urllib.parse.urlparse(base)
+    domain = f"{parsed.scheme}://{parsed.netloc}"
+    now = datetime.now()
+    start = (now - timedelta(days=1)).replace(minute=0, second=0, microsecond=0)
+    end = now.replace(minute=59, second=59, microsecond=999000)
+    qs = urllib.parse.urlencode({
+        "startTime": start.strftime("%Y-%m-%d %H:%M:%S"),
+        "endTime": end.strftime("%Y-%m-%d %H:%M:%S"),
+    })
+
+    model = _json_get(f"{domain}/api/monitor/usage/model-usage?{qs}", key)
+    tool = _json_get(f"{domain}/api/monitor/usage/tool-usage?{qs}", key)
+    quota = _json_get(f"{domain}/api/monitor/usage/quota/limit", key)
+
+    out = {
+        "model": model,
+        "tool": tool,
+        "quota": quota,
+        "level": (quota or {}).get("level"),
+        "token_5h": None,
+        "token_week": None,
+        "mcp_month": None,
+    }
+
+    def _limit(item):
+        try:
+            pct = float(item.get("percentage"))
+        except (TypeError, ValueError):
+            pct = None
+        return {
+            "pct": pct,
+            "reset": to_epoch(item.get("nextResetTime")),
+            "current": item.get("currentValue"),
+            "remaining": item.get("remaining"),
+            "limit": item.get("usage"),
+            "details": item.get("usageDetails") or [],
+        }
+
+    token_limits = []
+    for item in (quota or {}).get("limits") or []:
+        if item.get("type") == "TOKENS_LIMIT":
+            token_limits.append(_limit(item))
+        elif item.get("type") == "TIME_LIMIT":
+            out["mcp_month"] = _limit(item)
+    if token_limits:
+        out["token_5h"] = token_limits[0]
+    if len(token_limits) > 1:
+        out["token_week"] = token_limits[1]
+
+    total_model = ((model or {}).get("totalUsage") or {})
+    out["model_calls_24h"] = total_model.get("totalModelCallCount")
+    out["tokens_24h"] = total_model.get("totalTokensUsage")
+    out["model_summary"] = total_model.get("modelSummaryList") or (model or {}).get("modelSummaryList") or []
+
+    total_tool = ((tool or {}).get("totalUsage") or {})
+    out["search_24h"] = total_tool.get("totalSearchMcpCount")
+    out["web_read_24h"] = total_tool.get("totalWebReadMcpCount")
+    out["zread_24h"] = total_tool.get("totalZreadMcpCount")
+    out["network_search_24h"] = total_tool.get("totalNetworkSearchCount")
+    out["tool_summary"] = total_tool.get("toolSummaryList") or (tool or {}).get("toolSummaryList") or []
+    return out
+
 def get_zai():
     zc = CFG.get("z_ai", {})
     model = zc.get("model", "GLM-5.2")
@@ -505,14 +590,14 @@ def get_zai():
     out = {
         "ok": False, "key": bool(key), "model": model, "base": base,
         "dash": dash, "plan": plan, "limits": ZAI_LIMITS.get(plan),
-        "err": None, "usage": None,
+        "err": None, "usage": None, "monitor": None,
     }
     if not key:
         out["err"] = "key missing"
         return out
     try:
         c = json.load(open(ZAI_CACHE))
-        if time.time() - c.get("_ts", 0) < 1800:
+        if time.time() - c.get("_ts", 0) < 600:
             out.update(c["data"])
             return out
     except Exception:
@@ -532,6 +617,13 @@ def get_zai():
             "User-Agent": "ai-usage-bar/1.0",
         })
     try:
+        try:
+            out["monitor"] = _zai_monitor_usage(key, base)
+            if out["monitor"].get("level"):
+                out["plan"] = str(out["monitor"]["level"]).lower()
+                out["limits"] = ZAI_LIMITS.get(out["plan"], out["limits"])
+        except Exception as e:
+            out["monitor_err"] = str(e)[:120]
         with urllib.request.urlopen(req, timeout=15) as r:
             data = json.loads(r.read().decode("utf-8", "replace"))
         out["ok"] = True
@@ -585,8 +677,12 @@ def main():
         if ou.get("s_pct") is not None:
             seg.append(f"O {pct_str(ou['s_pct'])}")
         if zai.get("ok"):
-            plan = str(zai.get("plan") or "").strip().lower()
-            seg.append(f"Z {plan.title()}" if plan else "Z ✓")
+            z5 = (((zai.get("monitor") or {}).get("token_5h") or {}).get("pct"))
+            if z5 is not None:
+                seg.append(f"Z {pct_str(z5)}")
+            else:
+                plan = str(zai.get("plan") or "").strip().lower()
+                seg.append(f"Z {plan.title()}" if plan else "Z ✓")
         elif zai.get("key"):
             seg.append("Z !")
         print("  ".join(seg) if seg else "AI Usage")
@@ -684,10 +780,44 @@ def main():
 
     # ---- z.ai Coding Plan
     dot = "🟢" if zai["ok"] else ("🟡" if zai["key"] else "⚪️")
-    print(f"z.ai Coding Plan  {dot} | size=13")
+    level = (((zai.get("monitor") or {}).get("level")) or zai.get("plan") or "").upper()
+    print(f"z.ai Coding Plan  {dot}{('  (' + level + ')') if level else ''} | size=13")
     line(f"Model: {zai.get('model') or 'n/a'}", size=11, color="#888888")
     line(f"API {'healthy' if zai['ok'] else 'unavailable'} · key {'present' if zai['key'] else 'missing'}",
          size=11, color="#888888")
+    zm = zai.get("monitor") or {}
+    if zm:
+        z5 = zm.get("token_5h") or {}
+        zw = zm.get("token_week") or {}
+        mcp = zm.get("mcp_month") or {}
+        p = z5.get("pct")
+        line(f"5-hour   {bar(p)}  {pct_str(p)}", color=color_for(p), font=MONO)
+        if z5.get("reset"):
+            line(f"  {fmt_reset(z5['reset'])}", color="#888888", size=11)
+        p = zw.get("pct")
+        line(f"Weekly   {bar(p)}  {pct_str(p)}", color=color_for(p), font=MONO)
+        if zw.get("reset"):
+            line(f"  {fmt_reset(zw['reset'])}", color="#888888", size=11)
+        p = mcp.get("pct")
+        line(f"MCP mo.  {bar(p)}  {pct_str(p)}", color=color_for(p), font=MONO)
+        if mcp.get("remaining") is not None:
+            line(f"  {int_str(mcp.get('current'))} used · {int_str(mcp.get('remaining'))} remaining",
+                 color="#888888", size=11)
+        if mcp.get("reset"):
+            line(f"  {fmt_reset(mcp['reset'])}", color="#888888", size=11)
+        line(f"Last 24h: {int_str(zm.get('model_calls_24h'))} model calls · {int_str(zm.get('tokens_24h'))} tokens",
+             size=11, color="#888888")
+        tool_bits = []
+        if zm.get("search_24h") is not None:
+            tool_bits.append(f"search {int_str(zm.get('search_24h'))}")
+        if zm.get("web_read_24h") is not None:
+            tool_bits.append(f"web-read {int_str(zm.get('web_read_24h'))}")
+        if zm.get("zread_24h") is not None:
+            tool_bits.append(f"zread {int_str(zm.get('zread_24h'))}")
+        if tool_bits:
+            line("Last 24h tools: " + " · ".join(tool_bits), size=11, color="#888888")
+    elif zai.get("monitor_err"):
+        line(f"Monitor usage unavailable: {zai['monitor_err']}", size=11, color="#d29922")
     if zai.get("usage"):
         u = zai["usage"]
         inp = u.get("input_tokens")
@@ -701,9 +831,7 @@ def main():
         line(f"MCP quota: {lim['mcp']}", size=11, color="#888888")
     else:
         line("Plan limits unknown — set z_ai.plan to lite, pro, or max", size=11, color="#d29922")
-    line("Live used-% unavailable from z.ai; menu title shows configured plan only.",
-         size=10, color="#888888")
-    line("GLM-5.2/Turbo consume more quota at peak.",
+    line("Quota data comes from z.ai's official Coding Plan monitor endpoints.",
          size=10, color="#888888")
     if zai.get("err"):
         line(f"Last check: {zai['err']}", size=11, color="#d29922")
