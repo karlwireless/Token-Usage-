@@ -18,6 +18,15 @@
     "local_url": "http://127.0.0.1:11434/api/tags"
   },
 
+  "z_ai": {
+    "_note": "z.ai Coding Plan does not expose a live used-percent API. The plugin verifies the Anthropic-compatible endpoint and shows documented plan limits. Store the key at ~/.config/ai-usage-bar/zai.key or set ZAI_API_KEY.",
+    "dashboard_url": "https://z.ai/manage-apikey/rate-limits",
+    "base_url": "https://api.z.ai/api/anthropic",
+    "model": "GLM-5.2",
+    "plan": "max",
+    "key_path": "~/.config/ai-usage-bar/zai.key"
+  },
+
   "display": {
     "menubar_metric": "claude_5h",
     "warn_percent": 50,

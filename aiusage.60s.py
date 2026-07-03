@@ -2,7 +2,7 @@
 # <xbar.title>AI Usage</xbar.title>
 # <xbar.version>1.0</xbar.version>
 # <xbar.author>Claude Code</xbar.author>
-# <xbar.desc>Live usage-vs-limit for Claude, Codex, Featherless and Ollama Cloud.</xbar.desc>
+# <xbar.desc>Live usage-vs-limit for Claude, Codex, Featherless, Ollama Cloud, and z.ai.</xbar.desc>
 # <xbar.dependencies>python3</xbar.dependencies>
 # <swiftbar.refreshOnOpen>true</swiftbar.refreshOnOpen>
 """
@@ -14,6 +14,7 @@ Data sources (see the per-tile functions for the gory details):
   Codex         -> latest populated rate_limits block in ~/.codex/sessions/**.jsonl
   Featherless   -> local proxy reachability + key (no usage API exists; flat plan)
   Ollama Cloud  -> local server reachability + cloud models (real limits at dashboard)
+  z.ai          -> Anthropic-compatible health probe + configured Coding Plan limits
 """
 import json, os, glob, time, re, urllib.request, urllib.error, socket
 from datetime import datetime
@@ -443,6 +444,93 @@ def get_ollama():
     return {"up": up, "cloud_models": cloud_models, "usage": usage, "err": err,
             "dash": oc.get("dashboard_url", "https://ollama.com/settings")}
 
+# ----------------------------------------------------------------------------- z.ai
+ZAI_CACHE = "/tmp/ai_usage_zai.json"
+ZAI_LIMITS = {
+    "lite": {"p5h": "~80 prompts", "pwk": "~400 prompts", "mcp": "100 MCP calls/mo"},
+    "pro": {"p5h": "~400 prompts", "pwk": "~2,000 prompts", "mcp": "1,000 MCP calls/mo"},
+    "max": {"p5h": "~1,600 prompts", "pwk": "~8,000 prompts", "mcp": "4,000 MCP calls/mo"},
+}
+
+def _read_zai_key():
+    zc = CFG.get("z_ai", {})
+    paths = [
+        zc.get("key_path"),
+        os.path.join(HOME, ".config", "ai-usage-bar", "zai.key"),
+        os.path.join(HOME, ".config", "claude-glm", "zai.env"),
+    ]
+    for p in paths:
+        if not p:
+            continue
+        p = os.path.expanduser(p)
+        try:
+            text = open(p).read().strip()
+        except Exception:
+            continue
+        if "=" in text:
+            for line in text.splitlines():
+                if line.strip().startswith("ZAI_API_KEY="):
+                    return line.split("=", 1)[1].strip().strip("'\"")
+        elif text:
+            return text
+    return os.environ.get("ZAI_API_KEY", "").strip()
+
+def get_zai():
+    zc = CFG.get("z_ai", {})
+    model = zc.get("model", "GLM-5.2")
+    base = zc.get("base_url", "https://api.z.ai/api/anthropic").rstrip("/")
+    dash = zc.get("dashboard_url", "https://z.ai/manage-apikey/rate-limits")
+    plan = str(zc.get("plan", "max")).lower()
+    key = _read_zai_key()
+    out = {
+        "ok": False, "key": bool(key), "model": model, "base": base,
+        "dash": dash, "plan": plan, "limits": ZAI_LIMITS.get(plan),
+        "err": None, "usage": None,
+    }
+    if not key:
+        out["err"] = "key missing"
+        return out
+    try:
+        c = json.load(open(ZAI_CACHE))
+        if time.time() - c.get("_ts", 0) < 1800:
+            out.update(c["data"])
+            return out
+    except Exception:
+        pass
+    body = json.dumps({
+        "model": model,
+        "max_tokens": 1,
+        "messages": [{"role": "user", "content": "."}],
+    }).encode()
+    req = urllib.request.Request(
+        base + "/v1/messages",
+        data=body,
+        headers={
+            "Authorization": "Bearer " + key,
+            "anthropic-version": "2023-06-01",
+            "content-type": "application/json",
+            "User-Agent": "ai-usage-bar/1.0",
+        })
+    try:
+        with urllib.request.urlopen(req, timeout=15) as r:
+            data = json.loads(r.read().decode("utf-8", "replace"))
+        out["ok"] = True
+        out["model"] = data.get("model") or model
+        out["usage"] = data.get("usage")
+        json.dump({"_ts": time.time(), "data": out}, open(ZAI_CACHE, "w"))
+    except urllib.error.HTTPError as e:
+        out["err"] = f"HTTP {e.code}"
+        try:
+            data = json.loads(e.read().decode("utf-8", "replace"))
+            msg = data.get("error", {}).get("message")
+            if msg:
+                out["err"] += f": {msg[:80]}"
+        except Exception:
+            pass
+    except Exception as e:
+        out["err"] = str(e)[:120]
+    return out
+
 # ----------------------------------------------------------------------------- render
 def line(text, **params):
     parts = [text]
@@ -459,6 +547,7 @@ def main():
     claude = get_claude()
     feath = get_featherless()
     ollama = get_ollama()
+    zai = get_zai()
 
     # ---- connection health: Claude (token) + Ollama (cookie) are the auth-based services.
     #      Codex is local-only (no login) and is NOT allowed to trigger the sign-in state.
@@ -478,6 +567,8 @@ def main():
             seg.append(f"X {codex['p5h']:.0f}%")
         if ou.get("s_pct") is not None:
             seg.append(f"O {ou['s_pct']:.0f}%")
+        if zai.get("ok"):
+            seg.append("Z ok")
         print("  ".join(seg) if seg else "AI Usage")
     print("---")
     print(f"AI Usage — updated {datetime.now().strftime('%-I:%M %p')} | size=11 color=#888888")
@@ -569,6 +660,32 @@ def main():
     if ollama["cloud_models"]:
         line(f"Active model: {ollama['cloud_models'][0]}", size=11, color="#888888")
     line("Usage & limits (web dashboard)", href=ollama["dash"])
+    print("---")
+
+    # ---- z.ai Coding Plan
+    dot = "🟢" if zai["ok"] else ("🟡" if zai["key"] else "⚪️")
+    print(f"z.ai Coding Plan  {dot} | size=13")
+    line(f"Model: {zai.get('model') or 'n/a'}", size=11, color="#888888")
+    line(f"API {'healthy' if zai['ok'] else 'unavailable'} · key {'present' if zai['key'] else 'missing'}",
+         size=11, color="#888888")
+    if zai.get("usage"):
+        u = zai["usage"]
+        inp = u.get("input_tokens")
+        out = u.get("output_tokens")
+        if inp is not None or out is not None:
+            line(f"Probe usage: in {inp or 0} · out {out or 0} tokens", size=11, color="#888888")
+    if zai.get("limits"):
+        lim = zai["limits"]
+        line(f"{zai['plan'].upper()} reference: 5h {lim['p5h']} · weekly {lim['pwk']}",
+             size=11, color="#888888")
+        line(f"MCP quota: {lim['mcp']}", size=11, color="#888888")
+    else:
+        line("Plan limits unknown — set z_ai.plan to lite, pro, or max", size=11, color="#d29922")
+    line("GLM-5.2/Turbo consume more quota at peak; z.ai exposes no live used-% API.",
+         size=10, color="#888888")
+    if zai.get("err"):
+        line(f"Last check: {zai['err']}", size=11, color="#d29922")
+    line("Usage & limits (z.ai dashboard)", href=zai["dash"])
     print("---")
 
     line("Refresh", refresh="true")
