@@ -111,6 +111,18 @@ def as_percent(v):
         return v * 100.0
     return v
 
+def pct_str(p):
+    """Human percentage that does not hide small nonzero usage as 0%."""
+    if p is None:
+        return "—"
+    try:
+        p = float(p)
+    except Exception:
+        return "—"
+    if 0 < abs(p) < 10 and abs(p - round(p)) > 0.001:
+        return f"{p:.1f}%"
+    return f"{p:.0f}%"
+
 def port_open(host, port, timeout=0.6):
     try:
         with socket.create_connection((host, port), timeout=timeout):
@@ -145,9 +157,10 @@ def get_codex():
     files.sort(key=lambda p: os.path.getmtime(p), reverse=True)
 
     best = None
-    best_mtime = -1
-    # newest file first; stop once we find a populated block in a recent file
-    for fp in files[:40]:
+    best_ts = -1
+    # Newest files first, but choose the newest rate-limit event inside them.
+    # Active session files can contain old startup 0% blocks before newer usage.
+    for fp in files[:80]:
         try:
             mt = os.path.getmtime(fp)
             with open(fp, errors="ignore") as f:
@@ -159,14 +172,21 @@ def get_codex():
                     except Exception:
                         continue
                     rl = find_rl(o)
-                    if rl and (rl.get("primary") or rl.get("secondary")):
-                        if mt > best_mtime:
-                            best = rl
-                            best_mtime = mt
+                    if not rl:
+                        continue
+                    windows = [rl.get("primary"), rl.get("secondary")]
+                    populated = any(
+                        isinstance(w, dict) and w.get("used_percent") is not None
+                        for w in windows
+                    )
+                    if not populated:
+                        continue
+                    ts = to_epoch(o.get("timestamp")) or mt
+                    if ts > best_ts:
+                        best = rl
+                        best_ts = ts
         except Exception:
             continue
-        if best is not None:
-            break
 
     if best is None:
         out["note"] = "No live limit data yet (Codex currently routed to a local provider)."
@@ -185,7 +205,7 @@ def get_codex():
     out["p5h_reset"] = to_epoch(pr.get("resets_at"))
     out["pwk"] = _num(sc.get("used_percent"))
     out["pwk_reset"] = to_epoch(sc.get("resets_at"))
-    out["age_min"] = int((time.time() - best_mtime) / 60)
+    out["age_min"] = max(0, int((time.time() - best_ts) / 60))
     return out
 
 # ----------------------------------------------------------------------------- Claude
@@ -539,9 +559,6 @@ def line(text, **params):
         parts.append(extra)
     print(" | ".join(parts))
 
-def pct_str(p):
-    return f"{p:.0f}%" if p is not None else "—"
-
 def main():
     codex = get_codex()
     claude = get_claude()
@@ -562,13 +579,16 @@ def main():
     else:
         seg = []
         if claude.get("p5h") is not None:
-            seg.append(f"C {claude['p5h']:.0f}%")
+            seg.append(f"C {pct_str(claude['p5h'])}")
         if codex.get("p5h") is not None:
-            seg.append(f"X {codex['p5h']:.0f}%")
+            seg.append(f"X {pct_str(codex['p5h'])}")
         if ou.get("s_pct") is not None:
-            seg.append(f"O {ou['s_pct']:.0f}%")
+            seg.append(f"O {pct_str(ou['s_pct'])}")
         if zai.get("ok"):
-            seg.append("Z ok")
+            plan = str(zai.get("plan") or "").strip().lower()
+            seg.append(f"Z {plan.title()}" if plan else "Z ✓")
+        elif zai.get("key"):
+            seg.append("Z !")
         print("  ".join(seg) if seg else "AI Usage")
     print("---")
     print(f"AI Usage — updated {datetime.now().strftime('%-I:%M %p')} | size=11 color=#888888")
@@ -681,7 +701,9 @@ def main():
         line(f"MCP quota: {lim['mcp']}", size=11, color="#888888")
     else:
         line("Plan limits unknown — set z_ai.plan to lite, pro, or max", size=11, color="#d29922")
-    line("GLM-5.2/Turbo consume more quota at peak; z.ai exposes no live used-% API.",
+    line("Live used-% unavailable from z.ai; menu title shows configured plan only.",
+         size=10, color="#888888")
+    line("GLM-5.2/Turbo consume more quota at peak.",
          size=10, color="#888888")
     if zai.get("err"):
         line(f"Last check: {zai['err']}", size=11, color="#d29922")

@@ -5,10 +5,10 @@ A macOS menu-bar tracker (SwiftBar plugin) showing live usage-vs-limit for **Cla
 Menu bar shows a compact summary:
 
 ```
-C 6%   X 100%   O 18%   Z ok
+C 6%   X 100%   O 0.2%   Z Max
 ```
 
-`C` = Claude (5-hour window) · `X` = Codex (5-hour window) · `O` = Ollama (session window) · `Z` = z.ai API health. Click for a dropdown with each service's short + weekly windows, reset countdowns, and dashboard links.
+`C` = Claude (5-hour window) · `X` = Codex (5-hour window) · `O` = Ollama (session window) · `Z` = configured z.ai Coding Plan tier. Click for a dropdown with each service's short + weekly windows, reset countdowns, and dashboard links.
 
 If an auth-based service (Claude or Ollama) loses its connection, the bar collapses to **⚠️ Sign in** and the dropdown shows a one-tap reconnect link.
 
@@ -17,10 +17,10 @@ If an auth-based service (Claude or Ollama) loses its connection, the bar collap
 | Tile | Source | Notes |
 |---|---|---|
 | **Claude** | `anthropic-ratelimit-unified-*` **response headers** on a tiny `/v1/messages` call (cached ~4 min) | Needs an OAuth token from `claude setup-token` (only `user:inference` scope required). The dedicated `/api/oauth/usage` endpoint needs `user:profile`, which this client can't grant — the header route avoids that. |
-| **Codex** | Latest populated `rate_limits` block in `~/.codex/sessions/**/*.jsonl` | No auth. Goes blank when Codex is routed to a local provider (Featherless/Ollama) — this is normal and does **not** trigger the sign-in state. |
+| **Codex** | Newest populated `rate_limits` event in `~/.codex/sessions/**/*.jsonl` | No auth. Goes blank when Codex is routed to a local provider (Featherless/Ollama) — this is normal and does **not** trigger the sign-in state. |
 | **Ollama Cloud** | Scrapes the logged-in `ollama.com/settings` HTML using your Chrome session cookie | No public usage API exists. Decrypts the `ollama.com` cookie from Chrome's cookie store (v10 / AES-128-CBC) via the "Chrome Safe Storage" keychain key. Stay logged into ollama.com in Chrome. |
 | **Featherless** | Local proxy reachability + key presence | Flat subscription — no token quota to meter. Status + dashboard link only. |
-| **z.ai** | Tiny Anthropic-compatible `GLM-5.2` probe against `https://api.z.ai/api/anthropic` | z.ai exposes documented Coding Plan limits, but no live used-percent API. The tile shows API/key health, probe token usage, and configured Lite/Pro/Max reference limits. |
+| **z.ai** | Tiny Anthropic-compatible `GLM-5.2` probe against `https://api.z.ai/api/anthropic` | z.ai exposes documented Coding Plan limits, but no live used-percent API. The title shows the configured Lite/Pro/Max plan tier; the dropdown shows API/key health, probe token usage, and reference limits. |
 
 ## Requirements
 
