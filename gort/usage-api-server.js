@@ -251,6 +251,77 @@ async function collectClaude() {
   };
 }
 
+// Hit ollama.com/settings with the Mac-shipped session cookies and regex the
+// live Session/Weekly percentages out of the server-rendered HTML. Ollama has
+// no public usage API — the numbers only exist in this HTML page behind auth.
+// Cookies are refreshed by Karl's Mac every ~60s (long-lived; survive weeks
+// when the Mac is offline).
+function collectOllama() {
+  return new Promise((resolve, reject) => {
+    let ck;
+    try {
+      const raw = fs.readFileSync(
+        path.join(process.env.HOME || '/Users/gort', '.config/ai-usage-bar/ollama-cookies.json'),
+        'utf8'
+      );
+      ck = JSON.parse(raw);
+    } catch (e) {
+      reject(new Error('no shipped ollama cookies yet'));
+      return;
+    }
+    if (!ck.aid || !ck.session) {
+      reject(new Error('cookie file missing aid or session'));
+      return;
+    }
+    const cookieHdr = `aid=${ck.aid}; __Secure-session=${ck.session}`;
+    const req = https.get('https://ollama.com/settings', {
+      headers: {
+        Cookie: cookieHdr,
+        'User-Agent': 'Mozilla/5.0',
+        Accept: 'text/html',
+      },
+      timeout: 15_000,
+    }, (res) => {
+      let body = '';
+      res.setEncoding('utf8');
+      res.on('data', (chunk) => { body += chunk; });
+      res.on('end', () => {
+        if (!body.includes('Session usage')) {
+          reject(new Error('not logged in (cookie expired?)'));
+          return;
+        }
+        const pctMatch = (label) => {
+          const m = body.match(new RegExp(label + '[\\s\\S]{0,200}?([\\d.]+)%\\s*used'));
+          return m ? Number(m[1]) : null;
+        };
+        const resets = [...body.matchAll(/Resets in ([^<.]+)/g)].map((m) => m[1].trim());
+        const sPct = pctMatch('Session usage');
+        const wPct = pctMatch('Weekly usage');
+        const bal = (body.match(/Balance remaining[\s\S]{0,120}?(\$[\d.,]+)/) || [])[1];
+        if (sPct == null && wPct == null) {
+          reject(new Error('no usage percents in Ollama settings HTML'));
+          return;
+        }
+        const extra = bal ? `bal ${bal}` : null;
+        resolve({
+          id: 'ollama',
+          name: 'Ollama Cloud',
+          label: '',
+          pct: sPct,
+          reset: resets[0] || '',
+          weeklyPct: wPct,
+          weeklyReset: resets[1] || '',
+          ok: true,
+          source: 'gort-ollama-scrape',
+          ...(extra ? { extra } : {}),
+        });
+      });
+    });
+    req.on('timeout', () => req.destroy(new Error('timeout')));
+    req.on('error', reject);
+  });
+}
+
 function fetchJSON(target, headers = {}) {
   return new Promise((resolve, reject) => {
     const req = https.get(target, { headers, timeout: 15_000 }, (res) => {
@@ -387,6 +458,11 @@ async function refreshUsage() {
     updates.push(await collectZai());
   } catch (err) {
     errors.zai = err.message;
+  }
+  try {
+    updates.push(await collectOllama());
+  } catch (err) {
+    errors.ollama = err.message;
   }
   const next = {
     ...prior,
