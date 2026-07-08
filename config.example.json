@@ -31,10 +31,10 @@
     "menubar_metric": "claude_5h",
     "warn_percent": 50,
     "crit_percent": 80,
-    "_colors": "Bright, colorblind-friendly. <warn_percent = ok_color, >=warn = warn_color, >=crit = crit_color.",
-    "ok_color": "#00E000",
-    "warn_color": "#FF8C00",
-    "crit_color": "#FF2A2A",
+    "_colors": "Defaults to a single solid blue for all three levels (colorblind-friendly, no traffic light). To restore green/amber/red, set ok=#00E000, warn=#FF8C00, crit=#FF2A2A.",
+    "ok_color": "#007AFF",
+    "warn_color": "#007AFF",
+    "crit_color": "#007AFF",
     "none_color": "#AAAAAA"
   }
 }
