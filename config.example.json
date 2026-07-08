@@ -1,23 +1,19 @@
 {
   "_comment": "Copy this to ~/.config/ai-usage-bar/config.json and fill in. Never commit your real config or token files.",
-
   "claude": {
     "_note": "Preferred: put the OAuth token in ~/.config/ai-usage-bar/claude-oauth.token (chmod 600). Get one with `claude setup-token`. The plugin reads 5h/weekly % from anthropic-ratelimit-unified-* response headers on a tiny messages call (needs only user:inference scope). 'oauth_token' below is an optional fallback.",
     "oauth_token": "",
     "label": "Max 20x"
   },
-
   "featherless": {
     "dashboard_url": "https://featherless.ai/account",
     "proxy_url": "http://127.0.0.1:18086/v1/models"
   },
-
   "ollama_cloud": {
     "_note": "Live Session/Weekly usage is scraped from the logged-in ollama.com/settings page using your Chrome session cookie (no public usage API exists). Stay logged into ollama.com in Chrome.",
     "dashboard_url": "https://ollama.com/settings",
     "local_url": "http://127.0.0.1:11434/api/tags"
   },
-
   "z_ai": {
     "_note": "The plugin reads z.ai Coding Plan quota from the official monitor endpoints, verifies the Anthropic-compatible endpoint, and falls back to the configured plan if live monitor level is unavailable. Store the key at ~/.config/ai-usage-bar/zai.key or set ZAI_API_KEY.",
     "dashboard_url": "https://z.ai/manage-apikey/rate-limits",
@@ -26,15 +22,14 @@
     "plan": "max",
     "key_path": "~/.config/ai-usage-bar/zai.key"
   },
-
   "display": {
     "menubar_metric": "claude_5h",
     "warn_percent": 50,
     "crit_percent": 80,
     "_colors": "Defaults to a single solid blue for all three levels (colorblind-friendly, no traffic light). To restore green/amber/red, set ok=#00E000, warn=#FF8C00, crit=#FF2A2A.",
-    "ok_color": "#007AFF",
-    "warn_color": "#007AFF",
-    "crit_color": "#007AFF",
+    "ok_color": "#0033A0",
+    "warn_color": "#0033A0",
+    "crit_color": "#0033A0",
     "none_color": "#AAAAAA"
   }
 }
