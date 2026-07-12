@@ -147,8 +147,10 @@ console.log(JSON.stringify(best));
     label: limits.plan_type ? String(limits.plan_type).replace(/^./, (c) => c.toUpperCase()) : 'Pro',
     pct: limits.primary?.used_percent ?? null,
     reset: resetLabel(limits.primary?.resets_at),
+    resetAt: limits.primary?.resets_at ?? null,     // raw epoch (sec) for device-local formatting
     weeklyPct: limits.secondary?.used_percent ?? null,
     weeklyReset: resetLabel(limits.secondary?.resets_at),
+    weeklyResetAt: limits.secondary?.resets_at ?? null,
     ok: true,
     source: 'coder-codex-sessions',
   };
@@ -244,8 +246,10 @@ async function collectClaude() {
     label: 'Max 20x',
     pct: p5h,
     reset: resetLabel(r5h),
+    resetAt: r5h ?? null,
     weeklyPct: pwk,
     weeklyReset: resetLabel(rwk),
+    weeklyResetAt: rwk ?? null,
     ok: true,
     source: 'gort-claude-api',
   };
@@ -408,6 +412,13 @@ function resetFromLimit(obj) {
   });
 }
 
+// Return the raw epoch (seconds) so clients can format in their own timezone.
+function resetEpochFromLimit(obj) {
+  const raw = numFrom(obj, ['resetAt', 'reset_at', 'resetsAt', 'resets_at', 'nextResetTime', 'endTime', 'end_time', 'periodEnd']);
+  if (!raw) return null;
+  return raw > 10_000_000_000 ? Math.floor(raw / 1000) : raw;
+}
+
 async function collectZai() {
   const key = getZaiKey();
   if (!key) throw new Error('no z.ai key available');
@@ -433,8 +444,10 @@ async function collectZai() {
     label: String(quota?.data?.level || 'PRO').toUpperCase(),
     pct: sessionPct,
     reset: resetFromLimit(session),
+    resetAt: resetEpochFromLimit(session),
     weeklyPct,
     weeklyReset: resetFromLimit(weekly),
+    weeklyResetAt: resetEpochFromLimit(weekly),
     ok: true,
     source: 'gort-zai-api',
   };
